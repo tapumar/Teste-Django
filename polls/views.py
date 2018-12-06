@@ -1,70 +1,93 @@
-from rest_framework import generics
-from rest_framework.views import APIView
-from rest_framework import status
-from rest_framework.response import Response
-from .models import  Choice, Question, Vote
-from .serializers import ChoiceSerializer, QuestionSerializer
+from django.contrib.auth.models import User
+from .models import  Choice, Question #, Vote
 
-# ...
-# PollList and PollDetail views
+from django.http import HttpResponseRedirect
+from django.shortcuts import get_object_or_404, render
+from django.urls import reverse
+from django.views import generic
+from django.utils import timezone
 
-class ChoiceList(generics.ListCreateAPIView):
-    """
-    Retorna a lista de escolhas da questão.
-    """
+from .models import Choice, Question
+
+
+class IndexView(generic.ListView):
+    template_name = 'polls/index.html'
+    context_object_name = 'latest_question'
+
     def get_queryset(self):
-        queryset = Choice.objects.filter(poll_id=self.kwargs["pk"])
-        return queryset
-    serializer_class = ChoiceSerializer
+        """Return the last five published questions."""
+        return Question.objects.order_by('-pub_date')[0]
 
-class VoteView(generics.ListCreateAPIView):
-    """
-    get retorna a lista com todos os votos.
-    """
-    renderer_classes = [TemplateHTMLRenderer]
-    template_name = 'question_detail.html'
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        latest_question = get_latest_question()
+        media_votes = media(latest_question)
+        context['media_votos'] = media_votes
+        return context
 
 
-    def post(self, request, pk, choice_pk):
-        #voted_by = request.data.get("voted_by")
-        data = {'choice': choice_pk,
-                'poll': pk,
-                #'voted_by': voted_by,
-                'question': question_pk}
-        serializer = VoteSerializer(data=data)
+class DetailView(generic.DetailView):
+    model = Question
+    template_name = 'polls/detail.html'
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        latest_question = get_latest_question()
+        context['latest_question'] = latest_question
+        return context
 
-        if serializer.is_valid():
-            vote = serializer.save()
-            return Response(serializer.data,
-                            status=status.HTTP_201_CREATED)
-        else:
-            return Response(serializer.errors,
-                            status=status.HTTP_400_BAD_REQUEST)
+class ResultsView(generic.DetailView):
+    model = Question
+    template_name = 'polls/results.html'
 
-class CreateQuestion(generics.ListCreateAPIView):
-    """
-    get retorna a lista com todas as questões.
-    """
-    def post(self, request, pk):
-        profile = get_object_or_404(Profile, pk=pk)
-        serializer = ProfileSerializer(profile, data=request.data)
-        if not serializer.is_valid():
-            return Response({'serializer': serializer, 'profile': profile})
-        serializer.save()
-        return redirect('profile-list')
-        
-    def post(self, request, pk, choice_pk):
-        #voted_by = request.data.get("voted_by")
-        data = {'choice': choice_pk,
-                'poll': pk,
-                #'voted_by': voted_by,
-                'question': question_pk}
-        serializer = VoteSerializer(data=data)
+    def get_context_data(self, **kwargs):
+        question = kwargs['object']
+        choice = question.choice_set
+        c = choice.reverse()
+        context = {}
+        context['values'] = []
+        for i in range((len(c))):
+            context['values'].append(
+            [
+                choice.get(pk=c[i].pk).choice_text,
+                choice.get(pk=c[i].pk).votes
+            ])
+        context['latest_question'] = question
+        context['media_votos'] = media(question)
+        return context
 
-        if serializer.is_valid():
-            vote = serializer.save()
-            return Response(serializer.data,
-                            status=status.HTTP_201_CREATED)
-        else:
-            return Response(serializer.errors,
-                            status=status.HTTP_400_BAD_REQUEST)
+def vote(request, question_id):
+    question = get_object_or_404(Question, pk=question_id)
+    try:
+        selected_choice = question.choice_set.get(pk=request.POST['choice'])
+    except (KeyError, Choice.DoesNotExist):
+        # Redisplay the question voting form.
+        return render(request, 'polls/detail.html', {
+            'question': question,
+            'error_message': "You didn't select a choice.",
+        })
+    else:
+        selected_choice.votes += 1
+        selected_choice.save()
+        return HttpResponseRedirect(reverse('polls:results', args=(question.id,)))
+
+
+def get_latest_question():
+    return Question.objects.filter(
+        pub_date__lte=timezone.now()
+    ).order_by('-pub_date')[0]
+
+
+def media(question):
+    choices_set = question.choice_set
+    vote_peso = 0
+    vote_qtd = 0
+    media_votes = 0
+    for choice in choices_set.all().order_by('id'):
+        media_votes += (vote_peso * choice.votes)
+        vote_peso += 1
+        vote_qtd += choice.votes
+    if media_votes == 0:
+        media_votes = 2
+        vote_qtd = 1
+    media_votes = media_votes/vote_qtd
+    return (10*media_votes)/10

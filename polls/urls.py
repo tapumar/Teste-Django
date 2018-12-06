@@ -1,14 +1,13 @@
 from django.urls import path
-from .views import ChoiceList
-#from .views import QuestionViewSet
-from rest_framework.routers import DefaultRouter
+from django.views.generic import TemplateView
 
-router = DefaultRouter()
+from . import views
+
+
+app_name = 'polls'
 urlpatterns = [
-path("polls/<int:pk>/choices/", ChoiceList.as_view(), name="choice_list"),
-#path("polls/<int:pk>/choices/<int:choice_pk>/vote/", CreateVote.as_view(), name="create_vote"),
+    path('', views.IndexView.as_view(), name='index'),
+    path('<int:pk>/', views.DetailView.as_view(), name='detail'),
+    path('<int:pk>/results/', views.ResultsView.as_view(), name='results'),
+    path('<int:question_id>/vote/', views.vote, name='vote'),
 ]
-#
-
-#router.register('', QuestionViewSet, base_name='questions')
-urlpatterns = router.urls
